@@ -1,0 +1,203 @@
+spec_version: 1
+service: work-item-service
+organization: mmtm
+workload: wis
+region: eastus2
+region_abbreviation: eus2
+environments:
+  - dev
+  - qa
+  - prd
+tags:
+  workload: work-item-service
+  owner: platform-engineering
+  cost_center: digital-products
+  data_classification: internal
+  criticality: medium
+  managed_by: terraform
+state:
+  resource_group_name: REPLACE_WITH_STATE_RESOURCE_GROUP_NAME
+  storage_account_name: REPLACE_WITH_STATE_STORAGE_ACCOUNT_NAME
+  container_name: REPLACE_WITH_STATE_CONTAINER_NAME
+resources:
+  # IG-004, section 5.1
+  - type: resource_group
+
+  # IG-011, section 5.1
+  - type: log_analytics_workspace
+    retention_in_days:
+      dev: 30
+      qa: 30
+      prd: 90
+
+  # IG-011, section 5.1
+  - type: application_insights
+
+  # IG-008, section 5.1
+  - type: app_configuration
+    sku:
+      dev: developer
+      qa: developer
+      prd: standard
+
+  # IG-010 and IG-012, sections 6.3 and 6.6
+  - type: key_vault
+    purge_protection:
+      dev: false
+      qa: false
+      prd: true
+    soft_delete_retention_days: 90
+    diagnostics: true
+
+  # IG-007 and IG-008, sections 5.1 and 6.2
+  - type: servicebus_namespace
+    sku: Standard
+    minimum_tls_version: "1.2"
+    diagnostics: true
+
+  # IG-007, section 6.2
+  - type: servicebus_topic
+    key: work-item-events
+    default_message_ttl: P7D
+    duplicate_detection_window: PT10M
+
+  # IG-007, section 6.2
+  - type: servicebus_subscription
+    key: notifications
+    topic: work-item-events
+    max_delivery_count: 10
+    lock_duration: PT1M
+    default_message_ttl: P7D
+    dead_letter_on_expiration: true
+    filter:
+      name: notifications-filter
+      sql: "eventType IN ('WorkItemAssigned', 'WorkItemCompleted')"
+
+  # IG-007, section 6.2
+  - type: servicebus_subscription
+    key: audit
+    topic: work-item-events
+    max_delivery_count: 10
+    lock_duration: PT1M
+    default_message_ttl: P7D
+    dead_letter_on_expiration: true
+    filter:
+      name: audit-filter
+      sql: "1=1"
+
+  # IG-005 and IG-011, sections 5.1 and 6.1
+  - type: container_app_environment
+
+  # IG-005, IG-013, and IG-020, sections 6.1 and 7
+  - type: container_app
+    key: api
+    image: mcr.microsoft.com/dotnet/samples:aspnetapp
+    cpu: 0.5
+    memory: 1Gi
+    target_port: 8080
+    min_replicas:
+      dev: 0
+      qa: 1
+      prd: 2
+    max_replicas:
+      dev: 2
+      qa: 3
+      prd: 10
+    http_concurrency: 50
+    settings:
+      - name: APPCONFIG_ENDPOINT
+        from: app_configuration.endpoint
+      - name: KEYVAULT_URI
+        from: key_vault.uri
+      - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+        from: application_insights.connection_string
+      - name: COSMOS_ENDPOINT
+        from: cosmosdb_account.endpoint
+
+  # IG-006 and IG-015, sections 6.1 and 7
+  - type: function_app
+    key: evt
+    runtime: dotnet-isolated
+    runtime_version: "10.0"
+    instance_memory_mb: 2048
+    max_instance_count:
+      dev: 40
+      qa: 40
+      prd: 100
+    deployment_container: deployments
+    settings:
+      - name: APPCONFIG_ENDPOINT
+        from: app_configuration.endpoint
+      - name: KEYVAULT_URI
+        from: key_vault.uri
+      - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+        from: application_insights.connection_string
+      - name: COSMOS_ENDPOINT
+        from: cosmosdb_account.endpoint
+      - name: SERVICEBUS_NAMESPACE_ENDPOINT
+        from: servicebus_namespace.fully_qualified_namespace
+      - name: AzureWebJobsStorage__accountName
+        from: storage_account.name
+
+  # IG-006 and IG-008, sections 5.1 and 6.2
+  - type: storage_account
+    replication_type: LRS
+    access_tier: Hot
+    containers:
+      - deployments
+
+  # IG-008, IG-012, and IG-022, sections 6.2 and 6.6
+  - type: cosmosdb_account
+    capacity_mode: serverless
+    consistency_level: Session
+    backup_retention_days:
+      dev: 7
+      qa: 7
+      prd: 30
+    diagnostics: true
+
+  # IG-022, section 6.2
+  - type: cosmosdb_sql_database
+    key: workitems
+
+  # IG-022, section 6.2
+  - type: cosmosdb_sql_container
+    key: work-items
+    database: workitems
+    partition_key_path: /workItemId
+
+  # IG-022, section 6.2
+  - type: cosmosdb_sql_container
+    key: work-item-history
+    database: workitems
+    partition_key_path: /workItemId
+    unique_key_paths:
+      - /eventId
+access:
+  - principal: container_app/api
+    role: Azure Service Bus Data Sender
+    scope: servicebus_topic/work-item-events
+  - principal: function_app/evt
+    role: Azure Service Bus Data Receiver
+    scope: servicebus_topic/work-item-events
+  - principal: container_app/api
+    role: App Configuration Data Reader
+    scope: app_configuration
+  - principal: function_app/evt
+    role: App Configuration Data Reader
+    scope: app_configuration
+  - principal: container_app/api
+    role: Key Vault Secrets User
+    scope: key_vault
+  - principal: function_app/evt
+    role: Key Vault Secrets User
+    scope: key_vault
+  - principal: function_app/evt
+    role: Storage Blob Data Owner
+    scope: storage_account
+  - principal: container_app/api
+    role: Cosmos DB Built-in Data Contributor
+    scope: cosmosdb_sql_database/workitems
+  - principal: function_app/evt
+    role: Cosmos DB Built-in Data Contributor
+    scope: cosmosdb_sql_database/workitems
