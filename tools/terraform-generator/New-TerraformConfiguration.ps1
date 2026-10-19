@@ -41,6 +41,9 @@ function ConvertTo-PascalCase { param([string]$Value) return (($Value -split '_'
 
 # 1. Read and validate the spec.
 $SpecPath = (Resolve-Path -LiteralPath $SpecPath).Path
+# Make the output path absolute using PowerShell's current location. A relative path handed to .NET file APIs is
+# resolved against the process working directory, which is not changed by Set-Location (cd).
+$OutputPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $parsed = Read-InfraSpec -Path $SpecPath
 Assert-InfraSpecSchema -Spec $parsed.Spec -SchemaPath $SchemaPath
 Assert-InfraSpecSemantics -Spec $parsed.Spec

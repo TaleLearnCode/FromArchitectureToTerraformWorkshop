@@ -2,7 +2,7 @@
 
 **From Architecture to Terraform: A Hands-On Workshop (2 hours)**
 
-This is the overall guide. Each lab has its own page with the goal, the steps, and a "Notice" box we will ask about in the debrief.
+This is the overall guide. Each lab is a self-contained page with an introduction, background, the steps, what you should see, the lesson, and review questions. In the workshop, you will work through them together with a facilitator. You can also do them on your own, in order, with no presentation; each page says how long to allow.
 
 Work in the workshop repository (the one you cloned) unless a step says otherwise:
 
